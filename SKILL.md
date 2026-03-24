@@ -1,7 +1,11 @@
 ---
 name: youtube-summarizer
-description: 自動將 YouTube 影片轉化為結構化筆記，支援本地 ASR 轉錄，完全免費
+description: "Automatically summarize YouTube videos to structured notes with local ASR transcription"
 metadata:
+  {
+    "openclaw":
+      {
+        "emoji": "🎬",
   {
     "openclaw":
       {

@@ -108,24 +108,84 @@ def transcribe_audio(audio_path, model_size="tiny"):
     return text
 
 
-def create_note(video_id, transcript, video_url):
+def ai_summarize(transcript, video_id):
+    """使用關鍵詞提取 + 模板生成結構化摘要"""
+    print(f"\n🤖 AI 分析中（關鍵詞提取模式）...")
+    
+    # 提取關鍵詞和短語
+    import re
+    from collections import Counter
+    
+    # 中文關鍵詞提取（名詞短語）
+    words = re.findall(r'[\u4e00-\u9fa5]{2,6}|[A-Za-z][A-Za-z0-9+_.-]{2,20}', transcript)
+    word_freq = Counter(words)
+    
+    # 獲取最頻繁的 10 個關鍵詞
+    top_keywords = [word for word, count in word_freq.most_common(15) if count > 1]
+    
+    # 提取數字和統計數據
+    numbers = re.findall(r'(\d+[.,]?\d*)\s*(%|K|M|B|萬 | 億 | 小時 | 分鐘 | 天)?', transcript)
+    
+    # 提取問題
+    questions = re.findall(r'([^\?？]+[\?？])', transcript[:5000])
+    
+    # 生成結構化摘要
+    summary = f"""### 1. 核心主題
+（待補充 - 轉錄字數：{len(transcript)}）
+
+### 2. 關鍵詞
+{', '.join(top_keywords[:10]) if top_keywords else '（待補充）'}
+
+### 3. 重要數據
+{chr(10).join(f'- {num[0]}{num[1]}' for num in numbers[:5]) if numbers else '（待補充）'}
+
+### 4. 提到的問題
+{chr(10).join(f'- {q.strip()}' for q in questions[:3]) if questions else '（待補充）'}
+
+## 💡 洞察與反思
+
+（待手動補充）
+
+## 🔗 相關主題
+
+（待手動補充）
+"""
+    
+    print("✅ 關鍵詞分析完成")
+    return summary
+
+
+def create_note(video_id, transcript, video_url, ai_summary=None):
     """創建筆記"""
     print(f"\n📝 創建筆記...")
+    
+    # 建議的 MOC
+    moc_suggestions = "[[🗺️ AI MOC]]"
+    
+    # 根據內容判斷 MOC
+    if "OpenClaw" in transcript:
+        moc_suggestions += " [[🗺️ OpenClaw MOC]]"
+    if "Obsidian" in transcript or "筆記" in transcript:
+        moc_suggestions += " [[🗺️ Obsidian MOC]]"
+    if "Agent" in transcript or "框架" in transcript:
+        moc_suggestions += " [[🗺️ AI MOC]]"
     
     # 筆記內容
     note_content = f"""# YouTube 影片摘要 - {video_id}
 
-**影片連結：** {video_url}
-**日期：** {datetime.now().strftime('%Y-%m-%d %H:%M')}
+**影片連結：** https://youtu.be/{video_id}
+**日期：** {datetime.now().strftime('%Y-%m-%d')}
 **類型：** Sources
 **標籤：** #YouTube #AI #摘要
+**相關 MOC：** {moc_suggestions}
 **轉錄方式：** {"字幕提取" if len(transcript) > 1000 else "Faster Whisper ASR"}
+**字數：** {len(transcript)} 字元
 
 ---
 
-## 📝 內容摘要
+## 📝 重點整理
 
-{transcript[:2000]}...
+{ai_summary if ai_summary else "（待補充）"}
 
 ---
 
@@ -203,10 +263,17 @@ def process_video(video_url, model_size="tiny"):
             print("❌ 無法處理影片")
             return
     
-    # 4. 創建筆記
-    filepath = create_note(video_id, transcript, video_url)
+    # 4. AI 分析（可選，如果太長則跳過）
+    ai_summary = None
+    if len(transcript) <= 50000:  # 超過 50000 字跳過 AI 分析
+        ai_summary = ai_summarize(transcript, video_id)
+    else:
+        print("\n⚠️ 轉錄內容過長，跳過 AI 分析")
     
-    # 5. Git 同步
+    # 5. 創建筆記
+    filepath = create_note(video_id, transcript, video_url, ai_summary)
+    
+    # 6. Git 同步
     git_sync(filepath)
     
     print("\n" + "=" * 60)
