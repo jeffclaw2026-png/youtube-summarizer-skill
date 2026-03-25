@@ -116,31 +116,77 @@ def ai_summarize(transcript, video_id):
     import re
     from collections import Counter
     
-    # 中文關鍵詞提取（名詞短語）
-    words = re.findall(r'[\u4e00-\u9fa5]{2,6}|[A-Za-z][A-Za-z0-9+_.-]{2,20}', transcript)
-    word_freq = Counter(words)
+    # 中英文停用詞列表
+    stopwords = set(['the', 'and', 'can', 'that', 'you', 'this', 'have', 'here', 'see', 'just', 
+                     'is', 'are', 'was', 'were', 'be', 'been', 'being', 'to', 'of', 'in', 'for',
+                     'on', 'with', 'at', 'by', 'from', 'as', 'it', 'i', 'my', 'we', 'he', 'she',
+                     'they', 'them', 'their', 'what', 'so', 'if', 'but', 'or', 'about', 'into',
+                     'would', 'could', 'should', 'will', 'going', 'get', 'got', 'like', 'now',
+                     'then', 'when', 'where', 'which', 'who', 'how', 'all', 'each', 'every',
+                     'both', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'not', 'only',
+                     'same', 'than', 'too', 'very', 's', 't', 'd', 'll', 've', 're', 'm', 'll',
+                     '的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '一個',
+                     '上', '也', '很', '到', '說', '要', '去', '你', '會', '著', '沒有', '看', '好',
+                     '自己', '這', '那', '他', '她', '它', '們', '這個', '那個', '什麼', '怎麼', '可以'])
     
-    # 獲取最頻繁的 10 個關鍵詞
-    top_keywords = [word for word, count in word_freq.most_common(15) if count > 1]
+    # 判斷語言（中文 or 英文）
+    chinese_chars = len(re.findall(r'[\u4e00-\u9fa5]', transcript))
+    is_chinese = chinese_chars > len(transcript) * 0.3
+    
+    if is_chinese:
+        # 中文關鍵詞提取（名詞短語，2-6 字）
+        keywords = re.findall(r'[\u4e00-\u9fa5]{2,6}', transcript)
+    else:
+        # 英文關鍵詞提取（名詞短語，2-4 詞）
+        # 提取大寫專有名詞
+        proper_nouns = re.findall(r'\b[A-Z][a-zA-Z0-9+_.-]{2,30}\b', transcript)
+        # 提取名詞短語（2-4 詞）
+        noun_phrases = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\b', transcript)
+        # 合併
+        keywords = proper_nouns + noun_phrases
+    
+    # 過濾停用詞和太短的詞
+    keywords = [w for w in keywords if w.lower() not in stopwords and len(w) >= 3]
+    
+    # 統計頻率
+    word_freq = Counter(keywords)
+    
+    # 獲取最頻繁的 10-15 個關鍵詞
+    top_keywords = [word for word, count in word_freq.most_common(25) if count >= 2][:15]
     
     # 提取數字和統計數據
-    numbers = re.findall(r'(\d+[.,]?\d*)\s*(%|K|M|B|萬 | 億 | 小時 | 分鐘 | 天)?', transcript)
+    numbers = re.findall(r'(\d+[.,]?\d*)\s*(%|K|M|B|萬 | 億 | 小時 | 分鐘 | 天 | 年 | 個月 | 美元 | 元 | agents | jobs)?', transcript)
+    numbers_filtered = [(n[0], n[1]) for n in numbers if n[0] and len(n[0]) <= 6][:10]
     
-    # 提取問題
-    questions = re.findall(r'([^\?？]+[\?？])', transcript[:5000])
+    # 提取問題（英文 + 中文）
+    if is_chinese:
+        questions = re.findall(r'([^\?？]{10,50}[\?？])', transcript[:8000])
+    else:
+        questions = re.findall(r'([^\?]{10,50}\?)', transcript[:8000])
+    questions_filtered = [q.strip() for q in questions if len(q.strip()) > 15][:5]
+    
+    # 提取章節/主題線索
+    if is_chinese:
+        topics = re.findall(r'(?:首先 | 第一 | 第二 | 第三 | 接下來 | 然後 | 最後 | 總結 | 重點).{0,30}', transcript[:8000])
+    else:
+        topics = re.findall(r'(?:First|Second|Third|Next|Then|Finally|In conclusion|The first|The second|Now let|Today I|I\'m going to).{0,40}', transcript[:8000], re.IGNORECASE)
+    topics_filtered = list(set([t.strip() for t in topics]))[:5]
     
     # 生成結構化摘要
     summary = f"""### 1. 核心主題
-（待補充 - 轉錄字數：{len(transcript)}）
+（待補充 - 轉錄字數：{len(transcript):,}）
 
 ### 2. 關鍵詞
-{', '.join(top_keywords[:10]) if top_keywords else '（待補充）'}
+{', '.join(top_keywords) if top_keywords else '（待補充）'}
 
 ### 3. 重要數據
-{chr(10).join(f'- {num[0]}{num[1]}' for num in numbers[:5]) if numbers else '（待補充）'}
+{chr(10).join(f'- {num[0]}{num[1]}' for num in numbers_filtered) if numbers_filtered else '（待補充）'}
 
 ### 4. 提到的問題
-{chr(10).join(f'- {q.strip()}' for q in questions[:3]) if questions else '（待補充）'}
+{chr(10).join(f'- {q}' for q in questions_filtered) if questions_filtered else '（待補充）'}
+
+### 5. 章節/主題線索
+{chr(10).join(f'- {t}' for t in topics_filtered) if topics_filtered else '（待補充）'}
 
 ## 💡 洞察與反思
 
@@ -151,7 +197,7 @@ def ai_summarize(transcript, video_id):
 （待手動補充）
 """
     
-    print("✅ 關鍵詞分析完成")
+    print(f"✅ 關鍵詞分析完成（提取 {len(top_keywords)} 個關鍵詞，語言：{'中文' if is_chinese else '英文'}）")
     return summary
 
 
