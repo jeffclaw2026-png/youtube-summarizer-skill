@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-YouTube 摘要工作流 - 自動處理有字幕/無字幕影片
+YouTube 摘要工作流 - 使用 OpenClaw sub-agent 生成高質量摘要
 
 功能：
 1. 自動檢測字幕
 2. 有字幕 → 直接提取
 3. 無字幕 → Faster Whisper 轉錄
-4. AI 分析並創建筆記
+4. OpenClaw sub-agent 分析並創建筆記
 5. Git 同步
 
 使用方式：
@@ -109,96 +109,76 @@ def transcribe_audio(audio_path, model_size="tiny"):
 
 
 def ai_summarize(transcript, video_id):
-    """使用關鍵詞提取 + 模板生成結構化摘要"""
-    print(f"\n🤖 AI 分析中（關鍵詞提取模式）...")
+    """使用 OpenClaw sub-agent 生成高質量摘要"""
+    print(f"\n🤖 AI 分析中（OpenClaw sub-agent）...")
     
-    # 提取關鍵詞和短語
-    import re
-    from collections import Counter
+    # 截取前 15000 字
+    transcript_preview = transcript[:15000]
     
-    # 中英文停用詞列表
-    stopwords = set(['the', 'and', 'can', 'that', 'you', 'this', 'have', 'here', 'see', 'just', 
-                     'is', 'are', 'was', 'were', 'be', 'been', 'being', 'to', 'of', 'in', 'for',
-                     'on', 'with', 'at', 'by', 'from', 'as', 'it', 'i', 'my', 'we', 'he', 'she',
-                     'they', 'them', 'their', 'what', 'so', 'if', 'but', 'or', 'about', 'into',
-                     'would', 'could', 'should', 'will', 'going', 'get', 'got', 'like', 'now',
-                     'then', 'when', 'where', 'which', 'who', 'how', 'all', 'each', 'every',
-                     'both', 'few', 'more', 'most', 'other', 'some', 'such', 'no', 'not', 'only',
-                     'same', 'than', 'too', 'very', 's', 't', 'd', 'll', 've', 're', 'm', 'll',
-                     '的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '一個',
-                     '上', '也', '很', '到', '說', '要', '去', '你', '會', '著', '沒有', '看', '好',
-                     '自己', '這', '那', '他', '她', '它', '們', '這個', '那個', '什麼', '怎麼', '可以'])
-    
-    # 判斷語言（中文 or 英文）
-    chinese_chars = len(re.findall(r'[\u4e00-\u9fa5]', transcript))
-    is_chinese = chinese_chars > len(transcript) * 0.3
-    
-    if is_chinese:
-        # 中文關鍵詞提取（名詞短語，2-6 字）
-        keywords = re.findall(r'[\u4e00-\u9fa5]{2,6}', transcript)
-    else:
-        # 英文關鍵詞提取（名詞短語，2-4 詞）
-        # 提取大寫專有名詞
-        proper_nouns = re.findall(r'\b[A-Z][a-zA-Z0-9+_.-]{2,30}\b', transcript)
-        # 提取名詞短語（2-4 詞）
-        noun_phrases = re.findall(r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,3})\b', transcript)
-        # 合併
-        keywords = proper_nouns + noun_phrases
-    
-    # 過濾停用詞和太短的詞
-    keywords = [w for w in keywords if w.lower() not in stopwords and len(w) >= 3]
-    
-    # 統計頻率
-    word_freq = Counter(keywords)
-    
-    # 獲取最頻繁的 10-15 個關鍵詞
-    top_keywords = [word for word, count in word_freq.most_common(25) if count >= 2][:15]
-    
-    # 提取數字和統計數據
-    numbers = re.findall(r'(\d+[.,]?\d*)\s*(%|K|M|B|萬 | 億 | 小時 | 分鐘 | 天 | 年 | 個月 | 美元 | 元 | agents | jobs)?', transcript)
-    numbers_filtered = [(n[0], n[1]) for n in numbers if n[0] and len(n[0]) <= 6][:10]
-    
-    # 提取問題（英文 + 中文）
-    if is_chinese:
-        questions = re.findall(r'([^\?？]{10,50}[\?？])', transcript[:8000])
-    else:
-        questions = re.findall(r'([^\?]{10,50}\?)', transcript[:8000])
-    questions_filtered = [q.strip() for q in questions if len(q.strip()) > 15][:5]
-    
-    # 提取章節/主題線索
-    if is_chinese:
-        topics = re.findall(r'(?:首先 | 第一 | 第二 | 第三 | 接下來 | 然後 | 最後 | 總結 | 重點).{0,30}', transcript[:8000])
-    else:
-        topics = re.findall(r'(?:First|Second|Third|Next|Then|Finally|In conclusion|The first|The second|Now let|Today I|I\'m going to).{0,40}', transcript[:8000], re.IGNORECASE)
-    topics_filtered = list(set([t.strip() for t in topics]))[:5]
-    
-    # 生成結構化摘要
-    summary = f"""### 1. 核心主題
-（待補充 - 轉錄字數：{len(transcript):,}）
+    prompt = f"""請為這個 YouTube 影片創建專業級結構化摘要。
 
-### 2. 關鍵詞
-{', '.join(top_keywords) if top_keywords else '（待補充）'}
+**轉錄內容：**
+{transcript_preview}
 
-### 3. 重要數據
-{chr(10).join(f'- {num[0]}{num[1]}' for num in numbers_filtered) if numbers_filtered else '（待補充）'}
+---
 
-### 4. 提到的問題
-{chr(10).join(f'- {q}' for q in questions_filtered) if questions_filtered else '（待補充）'}
+請用繁體中文生成以下格式的摘要：
 
-### 5. 章節/主題線索
-{chr(10).join(f'- {t}' for t in topics_filtered) if topics_filtered else '（待補充）'}
+## 🎬 影片簡介
 
-## 💡 洞察與反思
+（一句話說明影片主題，50 字內）
 
-（待手動補充）
+## 📝 重點摘要
 
-## 🔗 相關主題
+### 核心痛點
+（列出 2-4 個影片討論的問題）
 
-（待手動補充）
+### 解決方案
+（影片提出的核心解決方案）
+
+### 關鍵技術/方法
+（技術要點、架構、工具）
+
+### 實際應用場景
+（如果有，列出應用場景）
+
+## ⚠️ 潛在風險與挑戰
+
+（批判性思考：限制、風險、挑戰）
+
+## 💡 關鍵洞察
+
+（深度分析、洞察、趨勢判斷）
+
+## 🔗 相關資源
+
+（提到的數據、作者、項目、連結等）
+
+---
+注意：
+1. 使用繁體中文
+2. 格式整潔，使用 Markdown
+3. 每個部分精簡，避免冗長
+4. 如果某些部分不適用，可以省略
 """
     
-    print(f"✅ 關鍵詞分析完成（提取 {len(top_keywords)} 個關鍵詞，語言：{'中文' if is_chinese else '英文'}）")
-    return summary
+    try:
+        # 使用 sessions_spawn 調用 sub-agent
+        workspace = "/home/jeff/papertowne/Manager/Obsidian-AI-Notes"
+        result = subprocess.run(
+            ['openclaw', 'sessions_spawn', '--runtime', 'subagent', '--mode', 'run', '--task', prompt, '--cleanup', 'delete'],
+            capture_output=True, text=True, timeout=180, cwd=workspace
+        )
+        
+        if result.returncode == 0 and result.stdout.strip():
+            print("✅ AI 分析完成")
+            return result.stdout.strip()
+        else:
+            print(f"⚠️ AI 分析失敗：{result.stderr[:200] if result.stderr else '無回應'}")
+            return None
+    except Exception as e:
+        print(f"⚠️ AI 分析異常：{e}")
+        return None
 
 
 def create_note(video_id, transcript, video_url, ai_summary=None):
@@ -219,19 +199,17 @@ def create_note(video_id, transcript, video_url, ai_summary=None):
     # 筆記內容
     note_content = f"""# YouTube 影片摘要 - {video_id}
 
-**影片連結：** https://youtu.be/{video_id}
-**日期：** {datetime.now().strftime('%Y-%m-%d')}
+**影片連結：** {video_url}
+**日期：** {datetime.now().strftime('%Y-%m-%d %H:%M')}
 **類型：** Sources
 **標籤：** #YouTube #AI #摘要
 **相關 MOC：** {moc_suggestions}
 **轉錄方式：** {"字幕提取" if len(transcript) > 1000 else "Faster Whisper ASR"}
-**字數：** {len(transcript)} 字元
+**字數：** {len(transcript):,} 字元
 
 ---
 
-## 📝 重點整理
-
-{ai_summary if ai_summary else "（待補充）"}
+{ai_summary if ai_summary else "## 📝 重點整理\n\n（待補充）"}
 
 ---
 
@@ -309,12 +287,8 @@ def process_video(video_url, model_size="tiny"):
             print("❌ 無法處理影片")
             return
     
-    # 4. AI 分析（可選，如果太長則跳過）
-    ai_summary = None
-    if len(transcript) <= 50000:  # 超過 50000 字跳過 AI 分析
-        ai_summary = ai_summarize(transcript, video_id)
-    else:
-        print("\n⚠️ 轉錄內容過長，跳過 AI 分析")
+    # 4. AI 分析
+    ai_summary = ai_summarize(transcript, video_id)
     
     # 5. 創建筆記
     filepath = create_note(video_id, transcript, video_url, ai_summary)
