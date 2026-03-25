@@ -109,8 +109,8 @@ def transcribe_audio(audio_path, model_size="tiny"):
 
 
 def ai_summarize(transcript, video_id):
-    """使用 HTTP 調用 Gateway API 生成高質量摘要"""
-    print(f"\n🤖 AI 分析中（Gateway API）...")
+    """使用 sessions_send 發送給當前 agent 處理摘要"""
+    print(f"\n🤖 AI 分析中（sessions_send）...")
     
     # 截取前 15000 字
     transcript_preview = transcript[:15000]
@@ -163,31 +163,22 @@ def ai_summarize(transcript, video_id):
 """
     
     try:
-        import requests
-        
-        # Gateway API endpoint (port 19001)
-        gateway_url = "http://localhost:19001/api/message"
-        
-        # 發送請求
-        response = requests.post(
-            gateway_url,
-            json={
-                "action": "send",
-                "message": prompt,
-                "label": "note",
-                "timeout_ms": 180000
-            },
-            timeout=180
+        # 使用 openclaw message send 發送給當前 agent
+        workspace = "/home/jeff/papertowne/Manager/Obsidian-AI-Notes"
+        result = subprocess.run(
+            ['openclaw', 'message', 'send', '--message', prompt, '--json'],
+            capture_output=True, text=True, timeout=180, cwd=workspace
         )
         
-        if response.status_code == 200:
-            result = response.json()
-            reply = result.get('reply', '') or result.get('message', '')
+        if result.returncode == 0 and result.stdout.strip():
+            import json
+            data = json.loads(result.stdout)
+            reply = data.get('reply', '') or data.get('message', '')
             if reply:
                 print("✅ AI 分析完成")
                 return reply.strip()
         
-        print(f"⚠️ AI 分析失敗：HTTP {response.status_code}")
+        print(f"⚠️ AI 分析失敗：{result.stderr[:200] if result.stderr else '無回應'}")
         return None
     except Exception as e:
         print(f"⚠️ AI 分析異常：{e}")
