@@ -163,10 +163,10 @@ def ai_summarize(transcript, video_id):
 """
     
     try:
-        # 使用 sessions_spawn 調用 sub-agent
+        # 使用 sessions_send 調用 main session
         workspace = "/home/jeff/papertowne/Manager/Obsidian-AI-Notes"
         result = subprocess.run(
-            ['openclaw', 'sessions_spawn', '--runtime', 'subagent', '--mode', 'run', '--task', prompt, '--cleanup', 'delete'],
+            ['openclaw', 'sessions_send', '--label', 'note', '--message', prompt],
             capture_output=True, text=True, timeout=180, cwd=workspace
         )
         
