@@ -163,10 +163,10 @@ def ai_summarize(transcript, video_id):
 """
     
     try:
-        # 使用 openclaw message send 發送給當前 agent
+        # 使用 openclaw message send 發送給當前 agent（通過 Telegram）
         workspace = "/home/jeff/papertowne/Manager/Obsidian-AI-Notes"
         result = subprocess.run(
-            ['openclaw', 'message', 'send', '--message', prompt, '--json'],
+            ['openclaw', 'message', 'send', '--channel', 'telegram', '--target', '100126894', '--message', prompt, '--json'],
             capture_output=True, text=True, timeout=180, cwd=workspace
         )
         
